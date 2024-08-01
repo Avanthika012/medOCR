@@ -1,1 +1,1 @@
-# yolo_trocr_modular
+# medOCR
