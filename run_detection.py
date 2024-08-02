@@ -45,48 +45,6 @@ def draw_dashed_line(img, start, end, color, thickness=1, dash_length=10, gap_le
     for dash in dash_points:
         cv2.line(img, dash[0], dash[1], color, thickness)
 
-def process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt):
-    qr_text = qr_reader(roi)
-    boxes, class_names, scores = model(roi)
-    results = []
-    unique_colors = generate_unique_colors(len(boxes))
-    
-    if qr_text:
-        results.append((f"QR: {qr_text}", (255, 255, 255)))  # White color for QR code text
-    else:
-        results.append(("[ No QR detected!!! ]", (255, 0, 0)))  # Red color for no QR detected
-    
-    text_detected = False
-    for i in range(len(class_names)):
-        if scores[i] >= det_th:
-            x1, y1, x2, y2 = boxes[i]
-            cname = class_names[i]
-            color = unique_colors[i]
-            cv2.rectangle(roi, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
-            
-            cropped_image = roi[int(y1):int(y2), int(x1):int(x2)]
-            ocr_text = ocr_model(cropped_image)
-            if ocr_text:
-                text_detected = True
-                # Convert recognized text to uppercase for matching
-                ocr_text_upper = ocr_text.upper()
-                # Check if the recognized text matches any in match_txt
-                if ocr_text_upper in [txt.upper() for txt in match_txt]:
-                    text_color = (0, 255, 0)  # Green for matched text
-                else:
-                    text_color = (0, 0, 255)  # Red for unmatched text
-                results.append((ocr_text_upper, text_color))
-            
-            text = f"{cname}: {ocr_text_upper}"
-            (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-            cv2.rectangle(roi, (int(x1), int(y1) - text_height - 5), (int(x1) + text_width, int(y1)), color, -1)
-            cv2.putText(roi, text, (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-    
-    if not text_detected:
-        results.append(("[ No texts detected!!! ]", (0, 0, 255)))  # Blue color for no text detected
-    
-    return roi, results
-
 def create_result_image(original_image, roi_results):
     height, width = original_image.shape[:2]
     canvas_height = height
@@ -108,36 +66,70 @@ def create_result_image(original_image, roi_results):
     font_color = (255, 255, 255)
     
     cv2.putText(result_image, "frinks.ai medOCR", (width + 10, 30), font, 1, font_color, line_type)
-    draw_dashed_line(result_image, (width, 50), (canvas_width, 50), font_color)
+    cv2.line(result_image, (width, 50), (canvas_width, 50), font_color, 1)
     
     # Add legends
     legend_font_scale = 0.4
     cv2.putText(result_image, "Red color - NG", (canvas_width - 200, 20), font, legend_font_scale, (0, 0, 255), 1)
     cv2.putText(result_image, "Green color - Passed", (canvas_width - 200, 40), font, legend_font_scale, (0, 255, 0), 1)
     
-    y_offset = 80
-    x_offset = width + 10
-    max_y = canvas_height - 30
-    column_width = width // 2
+    # Define layout parameters
+    start_y = 80
+    start_x = width + 10
+    column_width = (canvas_width - width) // 2
+    row_height = 150  # Adjust this value based on your needs
     
     for i, results in enumerate(roi_results):
-        current_height = 60 + (30 * len(results))
-        if y_offset + current_height > max_y:
-            y_offset = 80
-            x_offset += column_width
+        current_x = start_x + (i % 2) * column_width
+        current_y = start_y + (i // 2) * row_height
         
-        cv2.putText(result_image, f"ROI-{i+1} Results:", (x_offset, y_offset), font, font_scale, font_color, line_type)
-        y_offset += 30
+        cv2.putText(result_image, f"ROI-{i+1} Results:", (current_x, current_y), font, font_scale, font_color, line_type)
+        current_y += 30
         
         for text, color in results:
-            cv2.putText(result_image, text, (x_offset + 10, y_offset), font, font_scale, color, line_type)
-            y_offset += 30
+            cv2.putText(result_image, text, (current_x + 10, current_y), font, font_scale, color, line_type)
+            current_y += 30
         
-        draw_dashed_line(result_image, (x_offset, y_offset), (x_offset + column_width - 20, y_offset), font_color)
-        y_offset += 30
+        cv2.line(result_image, (current_x, current_y), (current_x + column_width - 20, current_y), font_color, 1)
     
     return result_image
 
+def process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt):
+    qr_text = qr_reader(roi)
+    boxes, class_names, scores = model(roi)
+    results = []
+    
+    if qr_text:
+        results.append((f"QR: {qr_text}", (255, 255, 255)))  # White color for QR code text
+    else:
+        results.append(("[ No QR detected!!! ]", (0, 0, 255)))  # Red color for no QR detected
+    
+    text_detected = False
+    for i in range(len(class_names)):
+        if scores[i] >= det_th:
+            x1, y1, x2, y2 = boxes[i]
+            cname = class_names[i]
+            color = (100, 100, 255)  # Light red color for bounding box
+            cv2.rectangle(roi, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+            
+            cropped_image = roi[int(y1):int(y2), int(x1):int(x2)]
+            ocr_text = ocr_model(cropped_image)
+            if ocr_text:
+                text_detected = True
+                ocr_text_upper = ocr_text.upper()
+                if ocr_text_upper in [txt.upper() for txt in match_txt]:
+                    text_color = (0, 255, 0)  # Green for matched text
+                else:
+                    text_color = (0, 0, 255)  # Red for unmatched text
+                results.append((ocr_text_upper, text_color))
+            
+            text = f"{cname}: {ocr_text_upper}"
+            cv2.putText(roi, text, (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+    
+    if not text_detected:
+        results.append(("[ No texts detected!!! ]", (0, 0, 255)))  # Red color for no text detected
+    
+    return roi, results
 def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, classes, qr_reader, match_txt):
     print(f"[INFO] {datetime.datetime.now()}: --------- IMAGE INFERENCING STARTED --------- \n")
 
@@ -157,7 +149,6 @@ def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, 
             processed_roi, results = process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt)
             processed_rois.append(processed_roi)
             roi_results.append(results)
-            print(f"-----------------ROI:{i}------------\n\n\n")
         
         # Merge processed ROIs
         merged_image = np.concatenate(processed_rois, axis=1)
@@ -170,6 +161,8 @@ def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, 
         print(f"[INFO] {datetime.datetime.now()}: Result image saved at {out_img_path}/{im_name[:-4]}_result.png. time for whole:{time.time()-st}")
 
     print(f"[INFO] {datetime.datetime.now()}: --- IMAGE INFERENCING COMPLETED ---")
+
+# ... (rest of the code remains the same)
 
 def dirchecks(file_path):
     if not os.path.exists(file_path):
