@@ -9,15 +9,15 @@
 
     "ocr_models": {
         "paddleocr": {
-          "model_weights":"./model_weights/paddleocr/" 
+          "model_weights":"./model_weights/paddleocr/"
         }
       },
-    "match_txt":["SY:02:24HL","108","2207:24RH"],
+    "match_txt":["B.No.:CPL123","MFG.:07/2024","EXP.:06/2027","M.R.P.:150.00"],
 
         
     "classes":["text"],
     "video_dir":null,
-    "image_dir":"/home/frinksserver/Downloads/RH-OCR-L1/RH-OCR/",
+    "image_dir":"./test_images/",
 
     "custom_name":"ocr_skh_jul23_aftertrain",
     "use_model":"fasterrcnn",

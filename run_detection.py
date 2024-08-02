@@ -30,7 +30,6 @@ def split_image(image):
     roi_3 = image[:, 2*split_width:]
     return [roi_1, roi_2, roi_3]
 
-
 def draw_dashed_line(img, start, end, color, thickness=1, dash_length=10, gap_length=10):
     dist = ((start[0] - end[0]) ** 2 + (start[1] - end[1]) ** 2) ** 0.5
     dash_points = []
@@ -46,7 +45,7 @@ def draw_dashed_line(img, start, end, color, thickness=1, dash_length=10, gap_le
     for dash in dash_points:
         cv2.line(img, dash[0], dash[1], color, thickness)
 
-def process_roi(roi, model, ocr_model, det_th, classes, qr_reader):
+def process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt):
     qr_text = qr_reader(roi)
     boxes, class_names, scores = model(roi)
     results = []
@@ -69,9 +68,16 @@ def process_roi(roi, model, ocr_model, det_th, classes, qr_reader):
             ocr_text = ocr_model(cropped_image)
             if ocr_text:
                 text_detected = True
-                results.append((ocr_text, color))
+                # Convert recognized text to uppercase for matching
+                ocr_text_upper = ocr_text.upper()
+                # Check if the recognized text matches any in match_txt
+                if ocr_text_upper in [txt.upper() for txt in match_txt]:
+                    text_color = (0, 255, 0)  # Green for matched text
+                else:
+                    text_color = (0, 0, 255)  # Red for unmatched text
+                results.append((ocr_text_upper, text_color))
             
-            text = f"{cname}: {ocr_text}"
+            text = f"{cname}: {ocr_text_upper}"
             (text_width, text_height), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
             cv2.rectangle(roi, (int(x1), int(y1) - text_height - 5), (int(x1) + text_width, int(y1)), color, -1)
             cv2.putText(roi, text, (int(x1), int(y1) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
@@ -104,6 +110,11 @@ def create_result_image(original_image, roi_results):
     cv2.putText(result_image, "frinks.ai medOCR", (width + 10, 30), font, 1, font_color, line_type)
     draw_dashed_line(result_image, (width, 50), (canvas_width, 50), font_color)
     
+    # Add legends
+    legend_font_scale = 0.4
+    cv2.putText(result_image, "Red color - NG", (canvas_width - 200, 20), font, legend_font_scale, (0, 0, 255), 1)
+    cv2.putText(result_image, "Green color - Passed", (canvas_width - 200, 40), font, legend_font_scale, (0, 255, 0), 1)
+    
     y_offset = 80
     x_offset = width + 10
     max_y = canvas_height - 30
@@ -127,10 +138,10 @@ def create_result_image(original_image, roi_results):
     
     return result_image
 
-def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, classes,qr_reader):
+def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, classes, qr_reader, match_txt):
     print(f"[INFO] {datetime.datetime.now()}: --------- IMAGE INFERENCING STARTED --------- \n")
 
-    out_img_path = f"{out_path}/img_out/{custom_name}"
+    out_img_path = f"{out_path}/{custom_name}"
     os.makedirs(out_img_path, exist_ok=True)
 
     for im_name in tqdm(os.listdir(image_dir)):
@@ -142,10 +153,8 @@ def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, 
         processed_rois = []
         roi_results = []
         
-        
         for i, roi in enumerate(rois):
-            cv2.imwrite(f"roi{i}.png",roi)
-            processed_roi, results = process_roi(roi, model, ocr_model, det_th, classes,qr_reader=qr_reader)
+            processed_roi, results = process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt)
             processed_rois.append(processed_roi)
             roi_results.append(results)
             print(f"-----------------ROI:{i}------------\n\n\n")
@@ -196,12 +205,12 @@ def main(params):
 
     if params["image_dir"] is not None:
         start = time.time()
-        img_inferencing(params["image_dir"], out_path=params["output_dir"], ocr_model=ocr_model, model=model, qr_reader=qr_reader, det_th=detection_thr, custom_name=params["custom_name"], classes=params["classes"])
+        img_inferencing(params["image_dir"], out_path=params["output_dir"], ocr_model=ocr_model, model=model, qr_reader=qr_reader, det_th=detection_thr, custom_name=params["custom_name"], classes=params["classes"], match_txt=params["match_txt"])
         print(f"total time taken: {time.time() - start}")
     else:
         print(f"[INFO] {datetime.datetime.now()}: no img path given. Exiting\n")
         sys.exit(1)
-        
+
 if __name__ == '__main__':
     try:
         with open('./model_jsons/paramx.json', 'r') as f:
