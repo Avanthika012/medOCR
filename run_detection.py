@@ -15,6 +15,26 @@ import sys
 import numpy as np
 import random
 
+from camera.transmitor_class import Transmittor
+from collection import OrderedDict
+from dotenv import load_dotenv
+load_dotenv()
+
+
+#### transmittor code 
+
+try:    
+    # is_active= is_active as the model should be running in background. Hence read frames from the working RTSP only
+    # thread_master = ImageQServer(tcp_port=GP.TCP_PORT).start()
+    transmittor = Transmittor(camera_ip=os.getenv("CAMERA_IP"))
+    # thread_master = ImageQServer(tcp_port=5678).start()
+
+    print(f"[INFO] {datetime.datetime.now()}:Transmittor created")
+except Exception as e:
+    print(f"[ERROR] {datetime.datetime.now()}:Error at Transmittor initiation ")
+    traceback.print_exception(*sys.exc_info())
+
+
 def generate_unique_colors(n):
     colors = []
     for i in range(n):
@@ -176,12 +196,27 @@ def dirchecks(file_path):
         sys.exit(1)
     else:
         print(f"[INFO] {datetime.datetime.now()}: Found this directory:\n{file_path}.\n")
+def extractFrameVCO(img_master,thread_master):
+
+    tobj = thread_master.read()
+
+    print(f"[INFO] {datetime.datetime.now()}:length of thread master from where we are taking images---{len(tobj)}")
+
+    for i in range(len(tobj)):
+        idb, img= tobj[i]["name"], tobj[i]["frame"]
+
+        img_master[idb] = img
+
+    print(f"[INFO] {datetime.datetime.now()}:length of image master going into python---{len(img_master.keys())}")
+
+    return img_master
 
 def main(params):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] {datetime.datetime.now()}: device available: {device}  ------xxxxxxxxx \n")
 
     dirchecks(params["image_dir"])
+    transmittor.run()
 
     if params["use_model"] == "fasterrcnn":
         model = FasterRCNN(model_weights=params["models"]["fasterrcnn"]["model_weights"], classes=params["classes"], device=device, detection_thr=params["models"]["fasterrcnn"]["det_th"])
@@ -202,13 +237,69 @@ def main(params):
     qr_reader = Qreaderxp(model_weight=params["qr_model"]["yolov8_weights"])
     print(f"[INFO] {datetime.datetime.now()}: QR Code Reader Initialized!!!\n")
 
-    if params["image_dir"] is not None:
-        start = time.time()
-        img_inferencing(params["image_dir"], out_path=params["output_dir"], ocr_model=ocr_model, model=model, qr_reader=qr_reader, det_th=detection_thr, custom_name=params["custom_name"], classes=params["classes"], match_txt=params["match_txt"])
-        print(f"[INFO] {datetime.datetime.now()}: total time taken: {time.time() - start}")
-    else:
-        print(f"[INFO] {datetime.datetime.now()}: no img path given. Exiting\n")
-        sys.exit(1)
+    out_img_path = f"{params["output_dir"]}/{params["custom_name"]}"
+    os.makedirs(out_img_path, exist_ok=True)
+
+    ### cv2 result window
+    cv2.namedWindow("medOCR_results", cv2.WINDOW_NORMAL)
+
+
+
+    while True:
+        try:
+            stx = time.time()
+            img_master_dict = OrderedDict()
+            img_master_dict = extractFrameVCO(img_master=img_master_dict,thread_master=transmittor)  # extracting frames from video capture objects
+
+
+
+            if len(img_master_dict.keys()) != 0:
+                print("*"*100)
+                print(time.time())
+                print("Time taken for 1 loop: ", time.time() - main_st, time.time())
+                print("QUEUE SIZE: ", transmittor.saveQueue.qsize())
+                main_st = time.time()
+
+                frame=list(img_master_dict.values())[0]
+                if len(list(frame.shape)) == 2:
+                    frame=cv2.merge([frame,frame,frame])
+                img_count+=1
+                live_frame=frame.copy()
+
+                rois = split_image(live_frame)
+                processed_rois = []
+                roi_results = []
+                
+                for i, roi in enumerate(rois):           
+                    processed_roi, results = process_roi(roi, model, ocr_model, detection_thr, params["classes"], qr_reader, params["match_txt"])
+                    processed_rois.append(processed_roi)
+                    roi_results.append(results)
+                
+                # Merge processed ROIs
+                merged_image = np.concatenate(processed_rois, axis=1)
+                
+                # Create final result image
+                result_image = create_result_image(merged_image, roi_results)
+
+                ### cv2 imshow
+                cv2.imshow("medOCR_results",result_image)
+                
+                # Save the result image
+                im_name = time.time()
+                cv2.imwrite(f"{out_img_path}/{im_name}_result.png", result_image)
+                print(f"[INFO] {datetime.datetime.now()}: Result image saved at {out_img_path}/{im_name}_result.png.\n time for whole process:{time.time()-stx}")                
+        except Exception as e:
+            print(f"[ERROR] {datetime.datetime.now()}:Error at while loop in main()")
+            traceback.print_exception(*sys.exc_info())
+            sys.exit(1)
+
+    # if params["image_dir"] is not None:
+    #     start = time.time()
+    #     img_inferencing(params["image_dir"], out_path=params["output_dir"], ocr_model=ocr_model, model=model, qr_reader=qr_reader, det_th=detection_thr, custom_name=params["custom_name"], classes=params["classes"], match_txt=params["match_txt"])
+    #     print(f"[INFO] {datetime.datetime.now()}: total time taken: {time.time() - start}")
+    # else:
+    #     print(f"[INFO] {datetime.datetime.now()}: no img path given. Exiting\n")
+    #     sys.exit(1)
 
 if __name__ == '__main__':
     try:

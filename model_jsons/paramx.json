@@ -23,6 +23,7 @@
     "custom_name":"ocr_skh_jul23_aftertrain",
     "use_model":"fasterrcnn",
     "use_ocr_model":"paddleocr",
+    "camera_ip":"",
 
     "output_dir":"./results",
     "lowfpsvid":false
