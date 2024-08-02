@@ -13,11 +13,12 @@
         }
       },
     "match_txt":["SY:02:24HL","108","2207:24RH"],
+    "qr_model":{"yolov8_weights":"./model_weights/qrdet-l.pt"},
 
         
     "classes":["text"],
     "video_dir":null,
-    "image_dir":"/home/frinksserver/Downloads/RH-OCR-L1/RH-OCR/",
+    "image_dir":"./test_images/",
 
     "custom_name":"ocr_skh_jul23_aftertrain",
     "use_model":"fasterrcnn",

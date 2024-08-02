@@ -132,7 +132,7 @@ class QReader:
         import time
         t1 = time.time()
         detections = self.detect(image=image, is_bgr=is_bgr)
-        print("Time takne for detetion: ", time.time() - t1)
+        print(f"Time taken for QR detetion:{time.time() - t1}\n\n\n detections:{detections} \n")
         decoded_qrs = tuple(self.decode(image=image, detection_result=detection) for detection in detections)
 
 
@@ -189,12 +189,17 @@ class QReader:
         """
         # Crop the QR for bbox and quad
         cropped_bbox, _ = crop_qr(image=image, detection=detection_result, crop_key=BBOX_XYXY)
+        cv2.imwrite("cropped_bbox.png",cropped_bbox)
+
         cropped_quad, updated_detection = crop_qr(image=image, detection=detection_result, crop_key=PADDED_QUAD_XY)
         corrected_perspective = self.__correct_perspective(image=cropped_quad,
                                                            padded_quad_xy=updated_detection[PADDED_QUAD_XY])
 
+        cv2.imwrite("corrected_perspective.png",corrected_perspective)
+        
         for scale_factor in (1, 0.5, 2):#, 0.25, 3, 4):
             print("scale_factor FACTOR: ", scale_factor)
+            pri = 0
             for image in (cropped_bbox, corrected_perspective):
                 # If rescaled_image will be larger than 1024px, skip it
                 # TODO: Decide a minimum size for the QRs based on the resize benchmark
@@ -203,7 +208,10 @@ class QReader:
 
                 rescaled_image = cv2.resize(src=image, dsize=None, fx=scale_factor, fy=scale_factor,
                                             interpolation=cv2.INTER_CUBIC)
+                cv2.imwrite(f"{pri}_rescaled_image.png",rescaled_image)
+                pri+=1
                 decodedQR = decodeQR(image=rescaled_image, symbols=[ZBarSymbol.QRCODE])
+                print(f"\n decodedQR:{decodedQR}\n *******************")
                 if len(decodedQR) > 0:
                     return decodedQR
                 
@@ -236,6 +244,111 @@ class QReader:
 
         return []
 
+
+##### -------------------------- modified code ----------------------------------------------------
+
+    def mod_crop_with_padding(self,full_image, BBoxes, padding=5):
+        """
+        Crops the image with the given bounding box coordinates and adds padding.
+
+        Parameters:
+        - full_image: The original image from which to crop.
+        - BBoxes: A list or tuple of four integers representing the bounding box (x1, y1, x2, y2).
+        - padding: The number of pixels to add as padding around the bounding box. Default is 5.
+
+        Returns:
+        - cropped_img: The cropped image with padding.
+        """
+        # Extract the bounding box coordinates
+        x1, y1, x2, y2 = list(map(int, BBoxes))
+        
+        # Add padding, ensuring we don't go out of image bounds
+        x1_padded = max(0, x1 - padding)
+        y1_padded = max(0, y1 - padding)
+        x2_padded = min(full_image.shape[1], x2 + padding)
+        y2_padded = min(full_image.shape[0], y2 + padding)
+        
+        # Crop the image with padding
+        cropped_img = full_image[y1_padded:y2_padded, x1_padded:x2_padded].copy()
+        
+        return cropped_img.copy()
+
+
+
+    def mod_decode_qr_zbar(self, full_image,BBoxes):
+
+        cropped_img = self.mod_crop_with_padding(full_image,BBoxes,padding=5)
+        
+        
+        
+        for scale_factor in (1, 0.5, 2):#, 0.25, 3, 4):
+            print("scale_factor FACTOR: ", scale_factor)
+            pri = 0
+            # If rescaled_image will be larger than 1024px, skip it
+            # TODO: Decide a minimum size for the QRs based on the resize benchmark
+            if not all(25 < axis < 1024 for axis in cropped_img.shape[:2]) and scale_factor != 1:
+                continue
+
+            rescaled_image = cv2.resize(src=cropped_img, dsize=None, fx=scale_factor, fy=scale_factor,
+                                        interpolation=cv2.INTER_CUBIC)
+            # cv2.imwrite(f"{pri}_rescaled_image.png",rescaled_image)
+            pri+=1
+            decodedQR = decodeQR(image=rescaled_image, symbols=[ZBarSymbol.QRCODE])
+            # print(f"\n decodedQR:{decodedQR}\n *******************")
+            if len(decodedQR) > 0:
+                return decodedQR
+            
+            # # For QRs with black background and white foreground, try to invert the image
+            # decodedQR = decodeQR(image=255 - rescaled_image, symbols=[ZBarSymbol.QRCODE])
+            # if len(decodedQR) > 0:
+            #     return decodedQR
+            
+
+            # If it not works, try to parse to grayscale (if it is not already)
+            # if len(rescaled_image.shape) == 3:
+            #     assert rescaled_image.shape[
+            #                2] == 3, f'Image must be RGB or BGR, but it has {image.shape[2]} channels.'
+            #     gray = cv2.cvtColor(rescaled_image, cv2.COLOR_RGB2GRAY)
+            # else:
+            #     gray = rescaled_image
+            # decodedQR = self.__threshold_and_blur_decodings(image=gray, blur_kernel_sizes=((5, 5), (7, 7)))
+            # if len(decodedQR) > 0:
+            #     return decodedQR
+            
+
+            if len(rescaled_image.shape) == 3:
+                # If it not works, try to sharpen the image
+                sharpened_gray = cv2.cvtColor(cv2.filter2D(src=rescaled_image, ddepth=-1, kernel=_SHARPEN_KERNEL),
+                                                cv2.COLOR_RGB2GRAY)
+            else:
+                sharpened_gray = cv2.filter2D(src=rescaled_image, ddepth=-1, kernel=_SHARPEN_KERNEL)
+            # decodedQR = self.__threshold_and_qreader
+                
+
+        return []
+
+
+
+    def mod_decode(self, image, detection_result):
+
+        # Crop the image if a bounding box is given
+        decodedQR = self.mod_decode_qr_zbar(full_image=image, BBoxes=detection_result)
+        if len(decodedQR) > 0:
+            decoded_str = decodedQR[0].data.decode('utf-8')
+            for encoding in self.reencode_to:
+                try:
+                    decoded_str = decoded_str.encode(encoding).decode('utf-8')
+                    break
+                except (UnicodeDecodeError, UnicodeEncodeError):
+                    pass
+            else:
+                if len(self.reencode_to) > 0:
+                    # When double decoding fails, just return the first decoded string with utf-8
+                    warn(f'Double decoding failed for {self.reencode_to}. Returning utf-8 decoded string.')
+
+            return decoded_str
+        return None
+##### -------------------------------------------------------------------------------------------------------------------------
     def __correct_perspective(self, image: np.ndarray, padded_quad_xy: np.ndarray) -> np.ndarray:
         """
         :param image: np.ndarray. The image to be read. It must be a np.ndarray (HxWxC) (uint8).

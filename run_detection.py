@@ -96,7 +96,9 @@ def create_result_image(original_image, roi_results):
 
 def process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt):
     qr_text = qr_reader(roi)
+    dtt = time.time()
     boxes, class_names, scores = model(roi)
+    print(f"[INFO] {datetime.datetime.now()}: time taken for text detection:{time.time()-dtt} seconds")
     results = []
     
     if qr_text:
@@ -113,7 +115,10 @@ def process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt):
             cv2.rectangle(roi, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
             
             cropped_image = roi[int(y1):int(y2), int(x1):int(x2)]
+            ocrtt = time.time()
             ocr_text = ocr_model(cropped_image)
+            print(f"[INFO] {datetime.datetime.now()}: time taken for OCR text recog:{time.time()-ocrtt} seconds")
+
             if ocr_text:
                 text_detected = True
                 ocr_text_upper = ocr_text.upper()
@@ -137,6 +142,7 @@ def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, 
     os.makedirs(out_img_path, exist_ok=True)
 
     for im_name in tqdm(os.listdir(image_dir)):
+        print(f"\n[INFO] {datetime.datetime.now()}: working with {im_name}\n")
         img_path = os.path.join(image_dir, im_name)
         st = time.time()
         img = cv2.imread(img_path)
@@ -145,7 +151,7 @@ def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, 
         processed_rois = []
         roi_results = []
         
-        for i, roi in enumerate(rois):
+        for i, roi in enumerate(rois):           
             processed_roi, results = process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt)
             processed_rois.append(processed_roi)
             roi_results.append(results)
@@ -158,7 +164,7 @@ def img_inferencing(image_dir, out_path, ocr_model, model, det_th, custom_name, 
         
         # Save the result image
         cv2.imwrite(f"{out_img_path}/{im_name[:-4]}_result.png", result_image)
-        print(f"[INFO] {datetime.datetime.now()}: Result image saved at {out_img_path}/{im_name[:-4]}_result.png. time for whole:{time.time()-st}")
+        print(f"[INFO] {datetime.datetime.now()}: Result image saved at {out_img_path}/{im_name[:-4]}_result.png.\n time for whole process:{time.time()-st}")
 
     print(f"[INFO] {datetime.datetime.now()}: --- IMAGE INFERENCING COMPLETED ---")
 
@@ -193,13 +199,13 @@ def main(params):
     print(f"[INFO] {datetime.datetime.now()}: OCR Model Loading Completed!!!\n" if params["use_ocr_model"] is not None else f"[INFO] {datetime.datetime.now()}: NO OCR model!!! working with text detection only \n")
 
     # Initialize QR code reader
-    qr_reader = Qreaderxp()
+    qr_reader = Qreaderxp(model_weight=params["qr_model"]["yolov8_weights"])
     print(f"[INFO] {datetime.datetime.now()}: QR Code Reader Initialized!!!\n")
 
     if params["image_dir"] is not None:
         start = time.time()
         img_inferencing(params["image_dir"], out_path=params["output_dir"], ocr_model=ocr_model, model=model, qr_reader=qr_reader, det_th=detection_thr, custom_name=params["custom_name"], classes=params["classes"], match_txt=params["match_txt"])
-        print(f"total time taken: {time.time() - start}")
+        print(f"[INFO] {datetime.datetime.now()}: total time taken: {time.time() - start}")
     else:
         print(f"[INFO] {datetime.datetime.now()}: no img path given. Exiting\n")
         sys.exit(1)
