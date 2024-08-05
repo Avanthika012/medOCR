@@ -234,6 +234,19 @@ def extractFrameVCO(img_master,thread_master):
 
     return img_master
 
+
+def maintain_aspect_ratio(image, width=None, height=None):
+    if width is None and height is None:
+        return image
+    
+    h, w = image.shape[:2]
+    if width:
+        height = int(width * h / w)
+    else:
+        width = int(height * w / h)
+    
+    return cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
+
 def main(params):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] {datetime.datetime.now()}: device available: {device}  ------xxxxxxxxx \n")
@@ -263,11 +276,15 @@ def main(params):
     out_img_path = f"{params['output_dir']}/{params['custom_name']}"
     os.makedirs(out_img_path, exist_ok=True)
 
-    ### cv2 result window
-    # cv2.namedWindow("medOCR_results", cv2.WINDOW_NORMAL)
-    # cv2.namedWindow("medOCR_results", )
 
+    # Initialize window
+    cv2.namedWindow("medOCR_results", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("medOCR_results", 800, 600)  # Initial size
 
+    last_result = np.zeros((640, 640, 3), dtype=np.uint8)
+    default_width = 1920
+
+    last_result = np.zeros((640,640,3))
 
 
     while True:
@@ -277,13 +294,12 @@ def main(params):
             img_master_dict = extractFrameVCO(img_master=img_master_dict,thread_master=transmittor)  # extracting frames from video capture objects
 
 
-
             if len(img_master_dict.keys()) != 0:
                 print("*"*100)
                 print(time.time())
                 # print("Time taken for 1 loop: ", time.time() - main_st, time.time())
                 print("QUEUE SIZE: ", transmittor.saveQueue.qsize())
-                main_st = time.time()
+                # main_st = time.time()
 
                 frame=list(img_master_dict.values())[0]
                 if len(list(frame.shape)) == 2:
@@ -307,35 +323,28 @@ def main(params):
                 result_image = create_result_image(merged_image, roi_results)
 
                 if result_image is not None and result_image.size > 0:
-                    # Resize the image for display
-                    # display_image = cv2.resize(result_image, (result_image.shape[1]//2, result_image.shape[0]//2))
-                    display_image = cv2.resize(result_image, (result_image.shape[1]//3, result_image.shape[0]//3))
-
+                    display_image = maintain_aspect_ratio(result_image, width=default_width)
                     print(f"\n\n\n display_image size:{display_image.shape}")
+                    last_result = display_image.copy()
                 
                     cv2.imshow("medOCR_results", display_image)
-                    cv2.waitKey(1)  # Add this line to allow window updates
                 
                 # Save the result image
                 im_name = time.time()
                 cv2.imwrite(f"{out_img_path}/{im_name}_result.png", result_image)
                 print(f"[INFO] {datetime.datetime.now()}: Result image saved at {out_img_path}/{im_name}_result.png.\n time for whole process:{time.time()-stx}")                
-            # else:
-            #     print("no frame data!!")
-            #     cv2.imshow("medOCR_results",np.zeros((640,640,3)))
-
+            else:
+                # print("no frame data!!")
+                cv2.imshow("medOCR_results",last_result)
+            key = cv2.waitKey(1) & 0xFF
+            # if key == ord('q'):
+            #     break
         except Exception as e:
             print(f"[ERROR] {datetime.datetime.now()}:Error at while loop in main()")
             traceback.print_exception(*sys.exc_info())
             sys.exit(1)
+    # cv2.destroyAllWindows() 
 
-    # if params["image_dir"] is not None:
-    #     start = time.time()
-    #     img_inferencing(params["image_dir"], out_path=params["output_dir"], ocr_model=ocr_model, model=model, qr_reader=qr_reader, det_th=detection_thr, custom_name=params["custom_name"], classes=params["classes"], match_txt=params["match_txt"])
-    #     print(f"[INFO] {datetime.datetime.now()}: total time taken: {time.time() - start}")
-    # else:
-    #     print(f"[INFO] {datetime.datetime.now()}: no img path given. Exiting\n")
-    #     sys.exit(1)
 
 if __name__ == '__main__':
     try:
