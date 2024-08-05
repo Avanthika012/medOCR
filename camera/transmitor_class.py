@@ -1,46 +1,16 @@
 import os
 import sys
-import zmq
 import cv2
-import json
 import time
-import logging
-import imagezmq
-import socketio
-import requests
 import threading
 import numpy as np
 from ctypes import *
-from dotenv import load_dotenv
-from logging.handlers import RotatingFileHandler
-from pathlib import Path
 from ping3 import ping
 
 MVS_DIR = "/opt/MVS/Samples/64/Python/MvImport/"
-# BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0])))
 
-sys.path.insert(1, MVS_DIR)
+sys.path.append(MVS_DIR)
 from MvCameraControl_class import *
-
-load_dotenv()
-
-
-
-# g_bExit = False
-# cam = None
-# temp_queue=[]
-
-# sio = socketio.Client()
-
-# try:
-#     sio.connect(f"http://{os.getenv('BASE_IP_ADDRESS')}:9000")
-#     logger.info("Connected to the server!")
-#     print("Connected to the server!")
-# except Exception as e:
-#     logger.info('Socket is unable to connect to the BASE_IP_ADDRESS!!!')
-#     print('Socket is unable to connect to the BASE_IP_ADDRESS!!!')
-
-# api_endpoint = f"http://{os.getenv('BASE_IP_ADDRESS')}:9000/api/config/camera"
 
 import queue
 
@@ -54,6 +24,9 @@ class Transmittor:
         self.model_update = False
         self.model_update_data = None
         self.ping_timeout_retries = 5
+        self.ping_timeout = 0.2
+        self.next_ping_time = time.time()
+        self.time_between_restarts = 1
 
         os.makedirs('./frames/', exist_ok=True)
 
@@ -90,21 +63,35 @@ class Transmittor:
             else:
                 time.sleep(0.0001)
 
-    def is_camera_reachable(camera_ip, timeout=0.2):
-        result = ping(camera_ip, timeout=timeout)
+    def is_camera_reachable(self, timeout=0.2):
+        result = ping(self.assigned_camera_ip, timeout=timeout)
         return True if result is not None else False
+    
+    def read(self):
+        ct = 1
+        image_res = []
+        if self.saveQueue.qsize()>0:
+            
+            while (ct > 0 and self.saveQueue.qsize() > 0):
+                # loggerObj.saveQueue_logger.info('Queu size is greater than 0 so reading from it ')
+                if self.stop:
+                    break
+                image_res.append(self.saveQueue.get())
+                ct -= 1
+            return image_res
+        else:
+            time.sleep(0.001)
+            return image_res
 
-    def work_thread(self, cam, pData=0, nDataSize=0, g_bExit=False):
-
+    def work_thread(self, cam, data_buf=0, nPayloadSize=0, g_bExit=False):
         stFrameInfo = MV_FRAME_OUT_INFO_EX()
-        global sender,next_ping_time#,QUEUE
         memset(byref(stFrameInfo), 0, sizeof(stFrameInfo))
         ping_retries=0
 
         while True:
             current_time = time.time()
-            if current_time >= next_ping_time:
-                camera_status = self.is_camera_reachable(self.assigned_camera_ip, timeout=0.5)
+            if current_time >= self.next_ping_time:
+                camera_status = self.is_camera_reachable()
                 if camera_status == False:
                     print("Unable to ping camera")
                     ping_retries=ping_retries+1
@@ -113,14 +100,14 @@ class Transmittor:
                 else:
                     ping_retries=0
                 
-                next_ping_time = current_time + 5
+                self.next_ping_time = current_time + 5
 
-            ret = cam.MV_CC_GetOneFrameTimeout(byref(pData), nDataSize, stFrameInfo, 1000)
+            ret = cam.MV_CC_GetOneFrameTimeout(byref(data_buf), nPayloadSize, stFrameInfo, 1000)
             if ret!=0:
                 time.sleep(0.001)
                 print("no data[0x%x]" % ret)
             else:
-                numpy_array = np.array(pData, dtype=np.uint8)
+                numpy_array = np.array(data_buf, dtype=np.uint8)
                 image = numpy_array.reshape(
                     stFrameInfo.nHeight, stFrameInfo.nWidth)
                 try:
@@ -240,21 +227,23 @@ class Transmittor:
 
                         # Set trigger mode as off
                         ret = self.cam.MV_CC_SetEnumValue(
-                            "TriggerMode", MV_TRIGGER_MODE_OFF)
+                        "TriggerMode", MV_TRIGGER_MODE_ON)
                         if ret != 0:
                             print("set trigger mode fail! ret[0x%x]" % ret)
-                            # logger.info("set trigger mode fail! ret[0x%x]" % ret)
-                            continue
+                            sys.exit()
 
-                        # self.CAMERA IMAGE SETTINGS
-                        self.cam.MV_CC_SetIntValue("Height", self.height)
-                        self.cam.MV_CC_SetIntValue("Width", self.width)
-                        self.cam.MV_CC_SetFloatValue("Gain", self.gain[0])
-                        self.cam.MV_CC_SetFloatValue("ExposureTime", self.exposure[0])
-                        self.cam.MV_CC_SetBoolValue("GammaEnable", True)
-                        self.cam.MV_CC_SetFloatValue("Gamma", self.gamma[0])
-                        self.cam.MV_CC_SetBoolValue("AcquisitionFrameRateEnable", True)
-                        self.cam.MV_CC_SetFloatValue("AcquisitionFrameRate", self.fps)
+                        self.cam.MV_CC_SetEnumValueByString("TriggerSource", "Line0")
+                        ret = self.cam.MV_CC_SetEnumValueByString("TriggerActivation", "RisingEdge")
+                        if ret != 0:
+                            print("set trigger mode fail! ret[0x%x]" % ret)
+                            sys.exit()
+
+                        # Set trigger delay and debounce time
+                        ret = self.cam.MV_CC_SetBoolValue("AcquisitionFrameRateEnable", False)
+                        if ret != 0:
+                            print("set acquisition frame rate enable fail! ret[0x%x]" % ret)
+                            sys.exit()
+
 
                         # Get payload size
                         expParam = MVCC_INTVALUE()

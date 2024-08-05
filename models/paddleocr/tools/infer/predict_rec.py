@@ -789,7 +789,7 @@ tools/infer/predict_rec.py
 
 class PaddleOCRx():
 
-    def __init__(self,model_weights,rec_image_shape="3, 48, 320",rec_char_dict_path="/home/frinksserver/Deepak/yolo_fasterrcnn_trocr_modular/model_weights/paddleocr/en_dict.txt" ) -> None:
+    def __init__(self,model_weights,rec_image_shape="3, 48, 320",rec_char_dict_path="./model_weights/paddleocr/en_dict.txt" ) -> None:
 
         self.args = utility.parse_args()
         self.args.rec_model_dir = model_weights

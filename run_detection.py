@@ -16,7 +16,7 @@ import numpy as np
 import random
 
 from camera.transmitor_class import Transmittor
-from collection import OrderedDict
+from collections import OrderedDict
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -50,69 +50,92 @@ def split_image(image):
     roi_3 = image[:, 2*split_width:]
     return [roi_1, roi_2, roi_3]
 
-def draw_dashed_line(img, start, end, color, thickness=1, dash_length=10, gap_length=10):
-    dist = ((start[0] - end[0]) ** 2 + (start[1] - end[1]) ** 2) ** 0.5
-    dash_points = []
-    for i in np.arange(0, dist, dash_length + gap_length):
-        r_start = i / dist
-        r_end = (i + dash_length) / dist
-        x_start = int((1 - r_start) * start[0] + r_start * end[0])
-        y_start = int((1 - r_start) * start[1] + r_start * end[1])
-        x_end = int((1 - r_end) * start[0] + r_end * end[0])
-        y_end = int((1 - r_end) * start[1] + r_end * end[1])
-        dash_points.append(((x_start, y_start), (x_end, y_end)))
-
-    for dash in dash_points:
-        cv2.line(img, dash[0], dash[1], color, thickness)
-
 def create_result_image(original_image, roi_results):
     height, width = original_image.shape[:2]
-    canvas_height = height
-    canvas_width = width * 2
     
-    result_image = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
-    result_image[:, :width] = original_image
+    # Create the main image area
+    result_image = original_image.copy()
     
+    # Calculate the required dashboard height based on the maximum number of results
+    max_results = max(len(results) for results in roi_results)
+    dashboard_height = 200 + max_results * 40  # Increased base height for more spacing
+    
+    # Create the dashboard area below the main image
+    dashboard = np.zeros((dashboard_height, width, 3), dtype=np.uint8)
+    
+    # Add title and border to dashboard
+    title = "Frinks.ai medOCR"
+    title_size = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 2)[0]
+    title_x = (width - title_size[0]) // 2
+    title_y = 100  # Adjusted y-position to be in the middle of dashed lines
+
+    # Draw dashed lines
+    def draw_dashed_line(img, start_point, end_point, color, thickness=1, dash_length=10, gap_length=10):
+        x1, y1 = start_point
+        x2, y2 = end_point
+        dist = ((x1-x2)**2 + (y1-y2)**2)**.5
+        dashes = int(dist / (dash_length + gap_length))
+        for i in range(dashes):
+            start = int(i * (dash_length + gap_length))
+            end = int(start + dash_length)
+            if end > dist: end = int(dist)
+            x1_temp = int(x1 + (x2-x1) * (start/dist))
+            x2_temp = int(x1 + (x2-x1) * (end/dist))
+            y1_temp = int(y1 + (y2-y1) * (start/dist))
+            y2_temp = int(y1 + (y2-y1) * (end/dist))
+            cv2.line(img, (x1_temp, y1_temp), (x2_temp, y2_temp), color, thickness)
+
+    draw_dashed_line(dashboard, (0, 60), (width, 60), (255, 255, 255), 2)
+    draw_dashed_line(dashboard, (0, 140), (width, 140), (255, 255, 255), 2)
+    
+    cv2.putText(dashboard, title, (title_x, title_y), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+    
+    # Add legends to dashboard (both on the right side, between dashed lines)
+    legend_y1 = 85
+    legend_y2 = 115
+    cv2.putText(dashboard, "Red color - NG", (width - 300, legend_y1), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(dashboard, "Green color - Passed", (width - 300, legend_y2), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    
+    # Draw ROI separators and labels on the main image
     roi_width = width // 3
-    cv2.line(result_image, (roi_width, 0), (roi_width, height), (0, 255, 0), 2)
-    cv2.line(result_image, (2*roi_width, 0), (2*roi_width, height), (0, 255, 0), 2)
-    
     for i in range(3):
-        cv2.putText(result_image, f"ROI-{i+1}", (i*roi_width + 10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        if i >0:
+            cv2.line(result_image, (i*roi_width, 0), (i*roi_width, height), (0, 255, 0), 2)
+        label = f"ROI-{i+1}"
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 2)[0]
+        text_x = i * roi_width + (roi_width - text_size[0]) // 2
+        cv2.putText(result_image, label, (text_x, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
     
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.7
-    line_type = 2
-    font_color = (255, 255, 255)
-    
-    cv2.putText(result_image, "frinks.ai medOCR", (width + 10, 30), font, 1, font_color, line_type)
-    cv2.line(result_image, (width, 50), (canvas_width, 50), font_color, 1)
-    
-    # Add legends
-    legend_font_scale = 0.4
-    cv2.putText(result_image, "Red color - NG", (canvas_width - 200, 20), font, legend_font_scale, (0, 0, 255), 1)
-    cv2.putText(result_image, "Green color - Passed", (canvas_width - 200, 40), font, legend_font_scale, (0, 255, 0), 1)
-    
-    # Define layout parameters
-    start_y = 80
-    start_x = width + 10
-    column_width = (canvas_width - width) // 2
-    row_height = 150  # Adjust this value based on your needs
-    
+    # Add ROI results to dashboard
     for i, results in enumerate(roi_results):
-        current_x = start_x + (i % 2) * column_width
-        current_y = start_y + (i // 2) * row_height
+        start_x = i * (width // 3)
+        start_y = 180  # Increased starting y-position
+        cv2.putText(dashboard, f"ROI-{i+1} Results:", (start_x + 10, start_y), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
         
-        cv2.putText(result_image, f"ROI-{i+1} Results:", (current_x, current_y), font, font_scale, font_color, line_type)
-        current_y += 30
-        
+        # Reorder and display results
+        ordered_results = []
         for text, color in results:
-            cv2.putText(result_image, text, (current_x + 10, current_y), font, font_scale, color, line_type)
-            current_y += 30
+            if text.startswith("QR"):
+                ordered_results.insert(0, (text, color))
+            elif text.startswith("B.NO"):
+                ordered_results.insert(1, (text, color))
+            elif text.startswith("MFG"):
+                ordered_results.insert(2, (text, color))
+            elif text.startswith("EXP"):
+                ordered_results.insert(3, (text, color))
+            elif text.startswith("M.R.P"):
+                ordered_results.insert(4, (text, color))
+            else:
+                ordered_results.append((text, color))
         
-        cv2.line(result_image, (current_x, current_y), (current_x + column_width - 20, current_y), font_color, 1)
+        for j, (text, color) in enumerate(ordered_results):
+            cv2.putText(dashboard, text, (start_x + 10, start_y + 40 + j*40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     
-    return result_image
+    # Combine main image and dashboard
+    final_image = np.vstack((result_image, dashboard))
+    
+    return final_image
+
 
 def process_roi(roi, model, ocr_model, det_th, classes, qr_reader, match_txt):
     qr_text = qr_reader(roi)
@@ -196,18 +219,18 @@ def dirchecks(file_path):
         sys.exit(1)
     else:
         print(f"[INFO] {datetime.datetime.now()}: Found this directory:\n{file_path}.\n")
+
 def extractFrameVCO(img_master,thread_master):
 
     tobj = thread_master.read()
 
-    print(f"[INFO] {datetime.datetime.now()}:length of thread master from where we are taking images---{len(tobj)}")
+    # print(f"[INFO] {datetime.datetime.now()}:length of thread master from where we are taking images---{len(tobj)}")
 
     for i in range(len(tobj)):
-        idb, img= tobj[i]["name"], tobj[i]["frame"]
 
-        img_master[idb] = img
+        img_master['frame'] = tobj[i]
 
-    print(f"[INFO] {datetime.datetime.now()}:length of image master going into python---{len(img_master.keys())}")
+        print(f"[INFO] {datetime.datetime.now()}:length of image master going into python---{len(img_master.keys())}")
 
     return img_master
 
@@ -227,7 +250,7 @@ def main(params):
     print(f"[INFO] {datetime.datetime.now()}: Text Detection Model Loading Completed!!!\n")
 
     if params["use_ocr_model"] == "paddleocr":
-        ocr_model = PaddleOCRx(model_weights=params["ocr_models"]["paddleocr"]["model_weights"])
+        ocr_model = PaddleOCRx(model_weights=params["ocr_models"]["paddleocr"]["model_weights"],rec_char_dict_path=params["ocr_models"]["paddleocr"]["rec_char_dict_path"] )
     else:
         ocr_model = None
 
@@ -237,11 +260,13 @@ def main(params):
     qr_reader = Qreaderxp(model_weight=params["qr_model"]["yolov8_weights"])
     print(f"[INFO] {datetime.datetime.now()}: QR Code Reader Initialized!!!\n")
 
-    out_img_path = f"{params["output_dir"]}/{params["custom_name"]}"
+    out_img_path = f"{params['output_dir']}/{params['custom_name']}"
     os.makedirs(out_img_path, exist_ok=True)
 
     ### cv2 result window
-    cv2.namedWindow("medOCR_results", cv2.WINDOW_NORMAL)
+    # cv2.namedWindow("medOCR_results", cv2.WINDOW_NORMAL)
+    # cv2.namedWindow("medOCR_results", )
+
 
 
 
@@ -256,14 +281,14 @@ def main(params):
             if len(img_master_dict.keys()) != 0:
                 print("*"*100)
                 print(time.time())
-                print("Time taken for 1 loop: ", time.time() - main_st, time.time())
+                # print("Time taken for 1 loop: ", time.time() - main_st, time.time())
                 print("QUEUE SIZE: ", transmittor.saveQueue.qsize())
                 main_st = time.time()
 
                 frame=list(img_master_dict.values())[0]
                 if len(list(frame.shape)) == 2:
                     frame=cv2.merge([frame,frame,frame])
-                img_count+=1
+                # img_count+=1
                 live_frame=frame.copy()
 
                 rois = split_image(live_frame)
@@ -281,13 +306,24 @@ def main(params):
                 # Create final result image
                 result_image = create_result_image(merged_image, roi_results)
 
-                ### cv2 imshow
-                cv2.imshow("medOCR_results",result_image)
+                if result_image is not None and result_image.size > 0:
+                    # Resize the image for display
+                    # display_image = cv2.resize(result_image, (result_image.shape[1]//2, result_image.shape[0]//2))
+                    display_image = cv2.resize(result_image, (result_image.shape[1]//3, result_image.shape[0]//3))
+
+                    print(f"\n\n\n display_image size:{display_image.shape}")
+                
+                    cv2.imshow("medOCR_results", display_image)
+                    cv2.waitKey(1)  # Add this line to allow window updates
                 
                 # Save the result image
                 im_name = time.time()
                 cv2.imwrite(f"{out_img_path}/{im_name}_result.png", result_image)
                 print(f"[INFO] {datetime.datetime.now()}: Result image saved at {out_img_path}/{im_name}_result.png.\n time for whole process:{time.time()-stx}")                
+            # else:
+            #     print("no frame data!!")
+            #     cv2.imshow("medOCR_results",np.zeros((640,640,3)))
+
         except Exception as e:
             print(f"[ERROR] {datetime.datetime.now()}:Error at while loop in main()")
             traceback.print_exception(*sys.exc_info())

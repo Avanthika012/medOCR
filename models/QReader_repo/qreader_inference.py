@@ -28,6 +28,9 @@ class Qreaderxp:
         pred_boxes = pred[0].boxes.xyxy.tolist()
         print(f"\n\n[INFO] {datetime.datetime.now()}:time for QR detection only:{time.time()-st}")
 
+        if len(pred_boxes) ==0:
+            return ""
+
         decoded_text = self.qreaderx.mod_decode(image=image,detection_result=pred_boxes[0]) ### decoding detected QR code
         print(f"[INFO] {datetime.datetime.now()}:time for QR reader full process:{time.time()-st}\n\n")
 

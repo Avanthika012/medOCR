@@ -1,7 +1,7 @@
 {
     "models": {
       "fasterrcnn": {
-        "model_weights":"./model_weights/fasterrcnn_ocr_skh_jul24.pth",
+        "model_weights":"./model_weights/medocr_fasterrcnn_aug2.pth",
         "det_th": 0.8,
         "iou_th": 0.4
       }
@@ -9,10 +9,11 @@
 
     "ocr_models": {
         "paddleocr": {
-          "model_weights":"./model_weights/paddleocr/" 
+          "model_weights":"./model_weights/paddleocr/" ,
+          "rec_char_dict_path":"./model_weights/paddleocr/en_dict.txt"
         }
       },
-    "match_txt":["SY:02:24HL","108","2207:24RH"],
+    "match_txt":["MFG.:07/2024","B.No.:CPL123","EXP.:06/2027","M.R.P.:150.00","M.R.P.:150.00/-"],
     "qr_model":{"yolov8_weights":"./model_weights/qrdet-l.pt"},
 
         
@@ -20,7 +21,7 @@
     "video_dir":null,
     "image_dir":"./test_images/",
 
-    "custom_name":"ocr_skh_jul23_aftertrain",
+    "custom_name":"aug5_med",
     "use_model":"fasterrcnn",
     "use_ocr_model":"paddleocr",
     "camera_ip":"",
